@@ -8,7 +8,8 @@
     "activeTab",
     "contextMenus",
     "scripting",
-    "clipboardWrite"
+    "clipboardWrite",
+    "notifications"
   ],
   
   "host_permissions": [
@@ -32,6 +33,13 @@
     "default_title": "YouTube Transcript Extractor"
   },
   
+  "web_accessible_resources": [
+    {
+      "resources": ["youtube-transcript.esm.min.js"],
+      "matches": ["*://*.youtube.com/*"]
+    }
+  ],
+
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
