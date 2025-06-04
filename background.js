@@ -367,23 +367,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// Helper function to convert timestamp to seconds
-function convertTimestampToSeconds(timestamp) {
-  try {
-    const parts = timestamp.split(':');
-    if (parts.length === 2) {
-      // MM:SS format
-      return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-    } else if (parts.length === 3) {
-      // HH:MM:SS format
-      return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
-    }
-    return 0;
-  } catch (e) {
-    return 0;
-  }
-}
-
 function isYouTubeWatchPage(url) {
   if (!url) return false;
   try {
@@ -412,7 +395,7 @@ function formatOutput(title, url, transcript, language) {
   output += `Language: ${language.toUpperCase()}\n`;
   output += `Type: ${transcriptType}\n`;
   output += `Extracted: ${timestamp}\n`;
-  output += `Segments: ${transcript.data.length}\n`;
+
   output += `\n--- TRANSCRIPT ---\n\n`;
 
   transcript.data.forEach((segment, index) => {
@@ -420,7 +403,6 @@ function formatOutput(title, url, transcript, language) {
   });
 
   output += `\n--- END TRANSCRIPT ---\n`;
-  output += `\nExtracted with YouTube Transcript Extractor (DOM Method)`;
   
   return output;
 }
@@ -453,15 +435,7 @@ async function copyToClipboard(text, tabId) {
 }
 
 async function showNotification(message, type, tabId = null) {
-  // Show browser notification
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icon48.png',
-    title: 'YouTube Transcript Extractor',
-    message: message
-  });
-
-  // Also show in-page toast if we have a tab ID
+  // Show in-page toast if we have a tab ID
   if (tabId) {
     try {
       await chrome.scripting.executeScript({

@@ -8,13 +8,11 @@
     "activeTab",
     "contextMenus",
     "scripting",
-    "clipboardWrite",
-    "notifications"
+    "clipboardWrite"
   ],
   
   "host_permissions": [
-    "*://*.youtube.com/*",
-    "*://*.googleapis.com/*"
+    "*://*.youtube.com/*"
   ],
   
   "background": {
@@ -33,13 +31,6 @@
   "action": {
     "default_title": "YouTube Transcript Extractor"
   },
-  
-  "web_accessible_resources": [
-    {
-      "resources": ["youtube-video-transcript.min.js"],
-      "matches": ["*://*.youtube.com/*"]
-    }
-  ],
 
   "icons": {
     "16": "icon16.png",
