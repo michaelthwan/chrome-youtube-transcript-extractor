@@ -6,8 +6,15 @@ chrome.runtime.onInstalled.addListener(createContextMenu);
 
 function createContextMenu() {
   chrome.contextMenus.create({
-    id: "extract-transcript",
-    title: "Extract transcript",
+    id: "extract-transcript-zh-tw",
+    title: "Extract transcript (summarize with zh-tw)",
+    contexts: ["page"],
+    documentUrlPatterns: ["*://*.youtube.com/watch*"]
+  });
+  
+  chrome.contextMenus.create({
+    id: "extract-transcript-en-us",
+    title: "Extract transcript (summarize with en-US)",
     contexts: ["page"],
     documentUrlPatterns: ["*://*.youtube.com/watch*"]
   });
@@ -15,7 +22,15 @@ function createContextMenu() {
 
 // Handle context menu click
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "extract-transcript") {
+  let summaryLanguage = null;
+  
+  if (info.menuItemId === "extract-transcript-zh-tw") {
+    summaryLanguage = "zh-tw";
+  } else if (info.menuItemId === "extract-transcript-en-us") {
+    summaryLanguage = "en-US";
+  }
+  
+  if (summaryLanguage) {
     try {
       // Validate YouTube URL
       if (!isYouTubeWatchPage(tab.url)) {
@@ -322,15 +337,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const result = transcriptResults[0].result;
 
       if (result.success && result.transcript) {
-        // Format and copy transcript
-        const formattedOutput = formatOutput(result.title, result.url, result.transcript, result.language);
+        // Format and copy transcript with summary language
+        const formattedOutput = formatOutput(result.title, result.url, result.transcript, result.language, summaryLanguage);
         await copyToClipboard(formattedOutput, tab.id);
         
         const segmentCount = result.transcript.data.length;
         const transcriptType = result.transcript.type === 'auto' ? 'Auto-generated' : 'Manual';
         
         await showNotification(
-          `DOM extraction successful! ${segmentCount} segments (${transcriptType}, ${result.language.toUpperCase()}) copied to clipboard.`,
+          `DOM extraction successful! ${segmentCount} segments (${transcriptType}, ${result.language.toUpperCase()}) copied to clipboard. Summary language: ${summaryLanguage}`,
           "success",
           tab.id
         );
@@ -372,14 +387,12 @@ function extractVideoId(url) {
   }
 }
 
-function formatOutput(title, url, transcript, language) {
+function formatOutput(title, url, transcript, language, summaryLanguage) {
   const timestamp = new Date().toLocaleString();
   const transcriptType = transcript.type === 'auto' ? 'Auto-generated' : 'Manual';
   
   let output = `Title: ${title}\n`;
   output += `URL: ${url}\n`;
-  output += `Language: ${language.toUpperCase()}\n`;
-  output += `Type: ${transcriptType}\n`;
   output += `Extracted: ${timestamp}\n`;
 
   output += `\n--- TRANSCRIPT ---\n\n`;
@@ -389,6 +402,7 @@ function formatOutput(title, url, transcript, language) {
   });
 
   output += `\n--- END TRANSCRIPT ---\n`;
+  output += `Summarize the video using ${summaryLanguage}. Using point form and preserve more details`;
   
   return output;
 }
