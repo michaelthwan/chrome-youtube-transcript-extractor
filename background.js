@@ -245,13 +245,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                   }
                 }
                 
-                // Extract text - try multiple selectors
+                // Extract text - try multiple selectors (more specific to avoid duplicates)
                 const textSelectors = [
                   '.segment-text',
                   'yt-formatted-string.segment-text',
-                  'yt-formatted-string[class*="segment-text"]',
-                  '[class*="segment-text"]',
-                  '.ytd-transcript-segment-renderer yt-formatted-string'
+                  'yt-formatted-string[class*="segment-text"]'
                 ];
                 
                 let textElement = null;
@@ -270,15 +268,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     // Convert timestamp to seconds
                     const timeSeconds = convertTimestampToSeconds(timestamp);
                     
-                    segments.push({
-                      timestamp: timestamp,
-                      start: timeSeconds,
-                      text: text
-                    });
+                    // Check for duplicates before adding
+                    const isDuplicate = segments.some(existingSegment => 
+                      existingSegment.timestamp === timestamp && existingSegment.text === text
+                    );
+                    
+                    if (!isDuplicate) {
+                      segments.push({
+                        timestamp: timestamp,
+                        start: timeSeconds,
+                        text: text
+                      });
 
-                    // Log first few segments for debugging
-                    if (i < 3) {
-                      console.log(`Segment ${i}: [${timestamp}] "${text}"`);
+                      // Log first few segments for debugging
+                      if (segments.length <= 3) {
+                        console.log(`Segment ${segments.length}: [${timestamp}] "${text}"`);
+                      }
+                    } else {
+                      console.log(`Skipping duplicate segment: [${timestamp}] "${text}"`);
                     }
                   }
                 }
