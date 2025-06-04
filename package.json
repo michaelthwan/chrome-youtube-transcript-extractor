@@ -1,0 +1,31 @@
+{
+  "name": "chrome-youtube-transcript-extractor",
+  "version": "1.0.0",
+  "description": "A Chrome extension that allows you to extract YouTube video transcripts with timestamps via a simple right-click context menu.",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "install-deps": "npm install youtube-video-transcript"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/michaelthwan/chrome-youtube-transcript-extractor.git"
+  },
+  "keywords": [
+    "youtube",
+    "transcript",
+    "chrome-extension",
+    "video-transcript",
+    "subtitles"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "youtube-video-transcript": "^1.0.6"
+  },
+  "bugs": {
+    "url": "https://github.com/michaelthwan/chrome-youtube-transcript-extractor/issues"
+  },
+  "homepage": "https://github.com/michaelthwan/chrome-youtube-transcript-extractor#readme"
+}

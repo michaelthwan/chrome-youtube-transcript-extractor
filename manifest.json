@@ -13,7 +13,8 @@
   ],
   
   "host_permissions": [
-    "*://*.youtube.com/*"
+    "*://*.youtube.com/*",
+    "*://*.googleapis.com/*"
   ],
   
   "background": {
@@ -35,7 +36,7 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["youtube-transcript.esm.min.js"],
+      "resources": ["youtube-video-transcript.min.js"],
       "matches": ["*://*.youtube.com/*"]
     }
   ],

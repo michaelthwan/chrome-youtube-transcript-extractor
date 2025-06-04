@@ -32,16 +32,28 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
       console.log('Extracting transcript for video ID:', videoId);
 
-      // Get video title and extract transcript using the youtube-transcript library
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['youtube-transcript.esm.min.js']
-      });
-
+      // Extract transcript using DOM-based approach
       const transcriptResults = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: async (videoId) => {
           try {
+            // Helper function to convert timestamp to seconds (moved inside scope)
+            function convertTimestampToSeconds(timestamp) {
+              try {
+                const parts = timestamp.split(':');
+                if (parts.length === 2) {
+                  // MM:SS format
+                  return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                } else if (parts.length === 3) {
+                  // HH:MM:SS format
+                  return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+                }
+                return 0;
+              } catch (e) {
+                return 0;
+              }
+            }
+
             // Get video title
             const titleSelectors = [
               'h1.ytd-video-primary-info-renderer yt-formatted-string',
@@ -62,93 +74,321 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
               }
             }
 
-            // Use the youtube-transcript library
-            console.log('Extracting transcript using youtube-transcript library for video:', videoId);
-            
-            // Import the YoutubeTranscript from the loaded module
-            const { YoutubeTranscript } = await import(chrome.runtime.getURL('youtube-transcript.esm.min.js'));
+            // Helper function to wait for element
+            function waitForElement(selector, timeout = 10000) {
+              return new Promise((resolve, reject) => {
+                const element = document.querySelector(selector);
+                if (element) {
+                  resolve(element);
+                  return;
+                }
 
-            let transcript = null;
-            
-            // Try with video ID first
+                const observer = new MutationObserver((mutations, obs) => {
+                  const element = document.querySelector(selector);
+                  if (element) {
+                    obs.disconnect();
+                    resolve(element);
+                  }
+                });
+
+                observer.observe(document.body, {
+                  childList: true,
+                  subtree: true
+                });
+
+                setTimeout(() => {
+                  observer.disconnect();
+                  reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+                }, timeout);
+              });
+            }
+
+            // Helper function to wait
+            function wait(ms) {
+              return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            console.log('Starting DOM-based transcript extraction...');
+
+            // Step 1: Try to expand description if needed
             try {
-              transcript = await YoutubeTranscript.fetchTranscript(videoId);
-              console.log('Success with video ID');
-            } catch (error) {
-              console.log('Failed with video ID:', error.message);
-              
-              // Try with full URL as fallback
+              const expandButton = document.querySelector('#expand-sizer, tp-yt-paper-button[id="expand-sizer"]');
+              if (expandButton && expandButton.offsetParent !== null) {
+                console.log('Clicking expand description button...');
+                expandButton.click();
+                await wait(1000); // Wait for animation
+              }
+            } catch (e) {
+              console.log('Description expand not needed or failed:', e.message);
+            }
+
+            // Step 2: Look for transcript button and click it
+            console.log('Looking for transcript button...');
+            
+            const transcriptButtonSelectors = [
+              // English button text
+              'button[aria-label*="Show transcript"], button[aria-label*="transcript"]',
+              // Chinese button text (顯示轉錄稿)
+              'button[aria-label*="顯示轉錄稿"], button[aria-label*="轉錄稿"]',
+              // Generic selectors
+              'ytd-button-renderer button[aria-label*="transcript"]',
+              'ytd-button-renderer button[aria-label*="轉錄稿"]',
+              // Fallback - look in description area
+              'ytd-video-description-transcript-section-renderer button',
+              'ytd-expandable-video-description-body-renderer button[aria-label*="transcript"]'
+            ];
+
+            let transcriptButton = null;
+            for (const selector of transcriptButtonSelectors) {
               try {
-                const fullUrl = `https://www.youtube.com/watch?v=${videoId}`;
-                transcript = await YoutubeTranscript.fetchTranscript(fullUrl);
-                console.log('Success with full URL');
-              } catch (urlError) {
-                console.log('Failed with full URL:', urlError.message);
-                throw new Error(`Both approaches failed. Video ID error: ${error.message}`);
+                transcriptButton = document.querySelector(selector);
+                if (transcriptButton && transcriptButton.offsetParent !== null) {
+                  console.log('Found transcript button with selector:', selector);
+                  break;
+                }
+              } catch (e) {
+                console.log('Selector failed:', selector, e.message);
               }
             }
 
-            if (!transcript || transcript.length === 0) {
-              throw new Error('No transcript data returned');
+            // Alternative approach: search by text content
+            if (!transcriptButton) {
+              console.log('Searching for transcript button by text content...');
+              const allButtons = document.querySelectorAll('button');
+              for (const button of allButtons) {
+                const text = button.textContent || button.innerText || '';
+                const ariaLabel = button.getAttribute('aria-label') || '';
+                if (text.includes('transcript') || text.includes('轉錄稿') || 
+                    ariaLabel.includes('transcript') || ariaLabel.includes('轉錄稿')) {
+                  transcriptButton = button;
+                  console.log('Found transcript button by text:', text || ariaLabel);
+                  break;
+                }
+              }
             }
 
-            console.log('Successfully fetched transcript, segments:', transcript.length);
+            if (!transcriptButton) {
+              throw new Error('Transcript button not found. Make sure the video has captions enabled.');
+            }
 
-            // Format the transcript
-            const formattedTranscript = transcript.map(item => {
-              const startTime = parseFloat(item.offset || item.start || 0);
-              const hours = Math.floor(startTime / 3600);
-              const minutes = Math.floor((startTime % 3600) / 60);
-              const seconds = Math.floor(startTime % 60);
-              const timestamp = `(${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')})`;
-              
-              return `${timestamp} ${item.text.toUpperCase()}`;
-            }).join(' ');
+            // Click the transcript button
+            console.log('Clicking transcript button...');
+            transcriptButton.click();
+
+            // Wait for transcript panel to load
+            console.log('Waiting for transcript panel to load...');
+            await wait(2000);
+
+            // Step 3: Wait for transcript segments to appear
+            const transcriptContainer = await waitForElement(
+              'ytd-transcript-segment-list-renderer, ytd-transcript-segment-renderer',
+              15000
+            );
+
+            console.log('Transcript container found, extracting segments...');
+
+            // Step 4: Extract transcript segments
+            const segments = [];
+            
+            // Try multiple selectors for transcript segments
+            const segmentSelectors = [
+              'ytd-transcript-segment-renderer',
+              '.segment.style-scope.ytd-transcript-segment-renderer',
+              '[class*="transcript-segment"]'
+            ];
+
+            let segmentElements = [];
+            for (const selector of segmentSelectors) {
+              segmentElements = document.querySelectorAll(selector);
+              if (segmentElements.length > 0) {
+                console.log(`Found ${segmentElements.length} segments with selector: ${selector}`);
+                break;
+              }
+            }
+
+            if (segmentElements.length === 0) {
+              throw new Error('No transcript segments found in the panel');
+            }
+
+            // Extract text and timestamps from segments
+            for (let i = 0; i < segmentElements.length; i++) {
+              const segment = segmentElements[i];
+              try {
+                // Extract timestamp - try multiple selectors
+                const timestampSelectors = [
+                  '.segment-timestamp',
+                  '.segment-start-offset .segment-timestamp',
+                  '[class*="timestamp"]',
+                  '.ytd-transcript-segment-renderer .segment-start-offset div'
+                ];
+                
+                let timestampElement = null;
+                for (const timestampSelector of timestampSelectors) {
+                  timestampElement = segment.querySelector(timestampSelector);
+                  if (timestampElement && timestampElement.textContent.trim()) {
+                    break;
+                  }
+                }
+                
+                // Extract text - try multiple selectors
+                const textSelectors = [
+                  '.segment-text',
+                  'yt-formatted-string.segment-text',
+                  'yt-formatted-string[class*="segment-text"]',
+                  '[class*="segment-text"]',
+                  '.ytd-transcript-segment-renderer yt-formatted-string'
+                ];
+                
+                let textElement = null;
+                for (const textSelector of textSelectors) {
+                  textElement = segment.querySelector(textSelector);
+                  if (textElement && textElement.textContent.trim()) {
+                    break;
+                  }
+                }
+
+                if (timestampElement && textElement) {
+                  const timestamp = timestampElement.textContent.trim();
+                  const text = textElement.textContent.trim();
+                  
+                  if (timestamp && text) {
+                    // Convert timestamp to seconds
+                    const timeSeconds = convertTimestampToSeconds(timestamp);
+                    
+                    segments.push({
+                      timestamp: timestamp,
+                      start: timeSeconds,
+                      text: text
+                    });
+
+                    // Log first few segments for debugging
+                    if (i < 3) {
+                      console.log(`Segment ${i}: [${timestamp}] "${text}"`);
+                    }
+                  } else {
+                    console.log(`Segment ${i}: Missing timestamp or text`, {
+                      timestamp: timestamp,
+                      text: text,
+                      timestampElement: timestampElement?.outerHTML?.substring(0, 100),
+                      textElement: textElement?.outerHTML?.substring(0, 100)
+                    });
+                  }
+                } else {
+                  console.log(`Segment ${i}: Missing elements`, {
+                    hasTimestamp: !!timestampElement,
+                    hasText: !!textElement,
+                    segmentHTML: segment.outerHTML.substring(0, 200)
+                  });
+                }
+              } catch (e) {
+                console.log(`Error processing segment ${i}:`, e.message);
+              }
+            }
+
+            console.log(`Successfully extracted ${segments.length} transcript segments`);
+            console.log('First few segments:', segments.slice(0, 5));
+
+            if (segments.length === 0) {
+              throw new Error('No valid transcript segments could be extracted');
+            }
+
+            // Detect language from UI or content
+            let detectedLanguage = 'en'; // default
+            try {
+              // Try to detect from transcript header or UI language
+              const headerElement = document.querySelector('ytd-transcript-section-header-renderer h2');
+              if (headerElement) {
+                const headerText = headerElement.textContent;
+                // Simple detection based on UI text
+                if (headerText.includes('轉錄稿') || document.documentElement.lang === 'zh') {
+                  detectedLanguage = 'zh';
+                }
+              }
+            } catch (e) {
+              console.log('Language detection failed, using default');
+            }
 
             return {
+              success: true,
               title: title,
-              transcript: formattedTranscript
+              transcript: {
+                language: detectedLanguage,
+                type: 'auto', // Usually auto-generated from UI
+                data: segments
+              },
+              language: detectedLanguage,
+              url: window.location.href
             };
 
           } catch (error) {
-            console.error('Error in content script:', error);
-            throw error;
+            console.error('DOM-based transcript extraction error:', error);
+            return {
+              success: false,
+              error: error.message,
+              title: title || 'Unknown Title',
+              url: window.location.href
+            };
           }
         },
         args: [videoId]
       });
 
-      if (!transcriptResults || !transcriptResults[0] || !transcriptResults[0].result) {
-        await showNotification("Failed to extract transcript. The content script encountered an error.", "error", tab.id);
-        return;
+      const result = transcriptResults[0].result;
+
+      if (result.success && result.transcript) {
+        // Format and copy transcript
+        const formattedOutput = formatOutput(result.title, result.url, result.transcript, result.language);
+        await copyToClipboard(formattedOutput, tab.id);
+        
+        const segmentCount = result.transcript.data.length;
+        const transcriptType = result.transcript.type === 'auto' ? 'Auto-generated' : 'Manual';
+        
+        await showNotification(
+          `DOM extraction successful! ${segmentCount} segments (${transcriptType}, ${result.language.toUpperCase()}) copied to clipboard.`,
+          "success",
+          tab.id
+        );
+      } else {
+        await showNotification(
+          `Failed to extract transcript: ${result.error}`,
+          "error",
+          tab.id
+        );
       }
-
-      const { title, transcript } = transcriptResults[0].result;
-
-      if (!transcript || !transcript.trim()) {
-        await showNotification("No transcript found for this video or the video doesn't have captions available.", "error", tab.id);
-        return;
-      }
-
-      // Format output
-      const output = formatOutput(title, tab.url, transcript);
-
-      // Copy to clipboard
-      await copyToClipboard(output, tab.id);
-      await showNotification("Transcript copied to clipboard!", "success", tab.id);
 
     } catch (error) {
-      console.error("Error extracting transcript:", error);
-      await showNotification(`Error: ${error.message || 'An error occurred while extracting transcript.'}`, "error", tab.id);
+      console.error('Extension error:', error);
+      await showNotification(
+        `Extension error: ${error.message}`,
+        "error",
+        tab.id
+      );
     }
   }
 });
 
-// Helper functions
+// Helper function to convert timestamp to seconds
+function convertTimestampToSeconds(timestamp) {
+  try {
+    const parts = timestamp.split(':');
+    if (parts.length === 2) {
+      // MM:SS format
+      return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    } else if (parts.length === 3) {
+      // HH:MM:SS format
+      return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+    }
+    return 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 function isYouTubeWatchPage(url) {
+  if (!url) return false;
   try {
     const urlObj = new URL(url);
-    return urlObj.hostname.includes('youtube.com') && urlObj.pathname === '/watch' && urlObj.searchParams.has('v');
+    return urlObj.hostname.includes('youtube.com') && urlObj.pathname === '/watch';
   } catch {
     return false;
   }
@@ -163,55 +403,78 @@ function extractVideoId(url) {
   }
 }
 
-function formatOutput(title, url, transcript) {
-  return `<content>
-Summarize the video using zh-tw. Using point form and preserving more details.
-Title: "${title}"
-URL: "${url}"
-Transcript: "${transcript}"
-</content>`;
+function formatOutput(title, url, transcript, language) {
+  const timestamp = new Date().toLocaleString();
+  const transcriptType = transcript.type === 'auto' ? 'Auto-generated' : 'Manual';
+  
+  let output = `Title: ${title}\n`;
+  output += `URL: ${url}\n`;
+  output += `Language: ${language.toUpperCase()}\n`;
+  output += `Type: ${transcriptType}\n`;
+  output += `Extracted: ${timestamp}\n`;
+  output += `Segments: ${transcript.data.length}\n`;
+  output += `\n--- TRANSCRIPT ---\n\n`;
+
+  transcript.data.forEach((segment, index) => {
+    output += `[${segment.timestamp}] ${segment.text}\n`;
+  });
+
+  output += `\n--- END TRANSCRIPT ---\n`;
+  output += `\nExtracted with YouTube Transcript Extractor (DOM Method)`;
+  
+  return output;
+}
+
+function formatTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  } else {
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  }
 }
 
 async function copyToClipboard(text, tabId) {
-  await chrome.scripting.executeScript({
-    target: { tabId: tabId },
-    function: (text) => {
-      navigator.clipboard.writeText(text);
-    },
-    args: [text]
-  });
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      function: (textToCopy) => {
+        navigator.clipboard.writeText(textToCopy);
+      },
+      args: [text]
+    });
+  } catch (error) {
+    console.error('Failed to copy to clipboard:', error);
+    throw new Error('Failed to copy transcript to clipboard');
+  }
 }
 
 async function showNotification(message, type, tabId = null) {
-  try {
-    // Try to use Chrome notifications first
-    if (chrome.notifications && chrome.notifications.create) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icon48.png',
-        title: 'YouTube Transcript Extractor',
-        message: message
+  // Show browser notification
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon48.png',
+    title: 'YouTube Transcript Extractor',
+    message: message
+  });
+
+  // Also show in-page toast if we have a tab ID
+  if (tabId) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        function: (msg, msgType) => {
+          if (typeof window.showTranscriptToast === 'function') {
+            window.showTranscriptToast(msg, msgType);
+          }
+        },
+        args: [message, type]
       });
-    } else {
-      // Fallback to content script toast notification
-      if (tabId) {
-        await chrome.scripting.executeScript({
-          target: { tabId: tabId },
-          function: (msg, msgType) => {
-            if (window.showTranscriptToast) {
-              window.showTranscriptToast(msg, msgType);
-            } else {
-              // Simple alert as last resort
-              alert(`YouTube Transcript Extractor: ${msg}`);
-            }
-          },
-          args: [message, type]
-        });
-      }
+    } catch (error) {
+      console.log('Could not show in-page notification:', error.message);
     }
-  } catch (error) {
-    console.error('Error showing notification:', error);
-    // If all else fails, just log to console
-    console.log(`YouTube Transcript Extractor: ${message}`);
   }
 }
