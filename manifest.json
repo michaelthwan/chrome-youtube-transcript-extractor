@@ -20,14 +20,6 @@
     "type": "module"
   },
   
-  "content_scripts": [
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
-  
   "action": {
     "default_title": "YouTube Transcript Extractor"
   },

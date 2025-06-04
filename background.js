@@ -265,20 +265,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     if (i < 3) {
                       console.log(`Segment ${i}: [${timestamp}] "${text}"`);
                     }
-                  } else {
-                    console.log(`Segment ${i}: Missing timestamp or text`, {
-                      timestamp: timestamp,
-                      text: text,
-                      timestampElement: timestampElement?.outerHTML?.substring(0, 100),
-                      textElement: textElement?.outerHTML?.substring(0, 100)
-                    });
                   }
-                } else {
-                  console.log(`Segment ${i}: Missing elements`, {
-                    hasTimestamp: !!timestampElement,
-                    hasText: !!textElement,
-                    segmentHTML: segment.outerHTML.substring(0, 200)
-                  });
                 }
               } catch (e) {
                 console.log(`Error processing segment ${i}:`, e.message);
@@ -286,7 +273,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             }
 
             console.log(`Successfully extracted ${segments.length} transcript segments`);
-            console.log('First few segments:', segments.slice(0, 5));
 
             if (segments.length === 0) {
               throw new Error('No valid transcript segments could be extracted');
@@ -407,18 +393,6 @@ function formatOutput(title, url, transcript, language) {
   return output;
 }
 
-function formatTime(seconds) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  } else {
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  }
-}
-
 async function copyToClipboard(text, tabId) {
   try {
     await chrome.scripting.executeScript({
@@ -441,9 +415,68 @@ async function showNotification(message, type, tabId = null) {
       await chrome.scripting.executeScript({
         target: { tabId },
         function: (msg, msgType) => {
-          if (typeof window.showTranscriptToast === 'function') {
-            window.showTranscriptToast(msg, msgType);
+          // Helper function to show toast notifications
+          function showToast(message, type = 'info') {
+            // Remove existing toast
+            const existingToast = document.getElementById('yt-transcript-toast');
+            if (existingToast) {
+              existingToast.remove();
+            }
+
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.id = 'yt-transcript-toast';
+            toast.style.cssText = `
+              position: fixed;
+              top: 20px;
+              right: 20px;
+              background: ${type === 'error' ? '#f44336' : '#4CAF50'};
+              color: white;
+              padding: 12px 20px;
+              border-radius: 4px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+              z-index: 10000;
+              font-family: Arial, sans-serif;
+              font-size: 14px;
+              max-width: 300px;
+              word-wrap: break-word;
+              animation: slideIn 0.3s ease-out;
+            `;
+
+            // Add animation keyframes
+            if (!document.getElementById('toast-styles')) {
+              const style = document.createElement('style');
+              style.id = 'toast-styles';
+              style.textContent = `
+                @keyframes slideIn {
+                  from { transform: translateX(100%); opacity: 0; }
+                  to { transform: translateX(0); opacity: 1; }
+                }
+                @keyframes slideOut {
+                  from { transform: translateX(0); opacity: 1; }
+                  to { transform: translateX(100%); opacity: 0; }
+                }
+              `;
+              document.head.appendChild(style);
+            }
+
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            // Auto remove after 3 seconds
+            setTimeout(() => {
+              if (toast.parentNode) {
+                toast.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => {
+                  if (toast.parentNode) {
+                    toast.remove();
+                  }
+                }, 300);
+              }
+            }, 3000);
           }
+
+          showToast(msg, msgType);
         },
         args: [message, type]
       });
